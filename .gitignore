@@ -11,3 +11,10 @@ xcuserdata/
 .build/
 Package.resolved
 
+# Local AI assistant files
+.codex/
+.codex*
+.claude/
+.claude*
+CLAUDE.md
+
