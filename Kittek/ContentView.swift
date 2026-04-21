@@ -29,6 +29,7 @@ struct ContentView: View {
                     targetLayer(board: board)
                     bottomFoodLayer(board: board)
 
+                    dropFeedbackLayer(board: board)
                     topControls(board: board)
 
                     if controller.isPaused {
@@ -96,15 +97,24 @@ struct ContentView: View {
         ForEach(Array(controller.game.targets.enumerated()), id: \.element.id) { index, food in
             let center = board.targetCenter(at: index)
             let matched = controller.game.matchedFoods.contains(food)
+            let isHintedTarget = controller.draggingFood == food && !matched && !controller.isPaused
             Image(matched ? food.guessedAssetName : food.shapeAssetName)
                 .resizable()
                 .scaledToFit()
                 .frame(width: board.targetSize.width, height: board.targetSize.height)
                 .saturation(matched ? 1 : 0.15)
-                .brightness(matched ? 0 : -0.18)
-                .scaleEffect(matched ? 1.07 : 1)
+                .brightness(isHintedTarget ? 0.1 : (matched ? 0 : -0.18))
+                .shadow(color: isHintedTarget ? .yellow.opacity(0.85) : .clear, radius: board.width * 0.03)
+                .scaleEffect(isHintedTarget ? 1.15 : (matched ? 1.07 : 1))
+                .modifier(
+                    ShakeEffect(
+                        travelDistance: board.width * 0.018,
+                        animatableData: controller.wrongTargetIndex == index ? controller.wrongDropShakeCounter : 0
+                    )
+                )
                 .position(center)
                 .animation(.spring(response: 0.32, dampingFraction: 0.72), value: matched)
+                .animation(.easeInOut(duration: 0.18), value: isHintedTarget)
         }
     }
 
@@ -169,6 +179,28 @@ struct ContentView: View {
         }
         .padding(.horizontal, board.width * 0.08)
         .position(board.point(x: 0.50, y: 0.065))
+    }
+
+    private func dropFeedbackLayer(board: GameBoardMetrics) -> some View {
+        Group {
+            if let feedback = controller.dropFeedback {
+                Text(feedback.title)
+                    .font(.system(size: board.width * 0.07, weight: .heavy, design: .rounded))
+                    .foregroundStyle(feedback == .success ? .yellow : .white)
+                    .shadow(color: .black.opacity(0.45), radius: 8, x: 0, y: 3)
+                    .padding(.horizontal, board.width * 0.04)
+                    .padding(.vertical, board.width * 0.018)
+                    .background(
+                        Capsule()
+                            .fill(feedback == .success ? Color.orange.opacity(0.62) : Color.black.opacity(0.45))
+                    )
+                    .position(board.point(x: 0.50, y: 0.31))
+                    .id(controller.dropFeedbackSeed)
+                    .transition(.scale(scale: 0.72).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.24, dampingFraction: 0.72), value: controller.dropFeedbackSeed)
+        .zIndex(12)
     }
 
     private func pauseOverlay(board: GameBoardMetrics) -> some View {

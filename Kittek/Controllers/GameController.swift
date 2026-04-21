@@ -13,6 +13,10 @@ struct GameController {
     var eyePhase: CGFloat = 0
     var confettiSeed = 0
     var isPaused = false
+    var dropFeedback: DropFeedbackKind?
+    var dropFeedbackSeed = 0
+    var wrongTargetIndex: Int?
+    var wrongDropShakeCounter: CGFloat = 0
 
     let musicPlayer = RoundMusicPlayer()
 
@@ -74,6 +78,8 @@ struct GameController {
 
         guard let targetIndex = board.hitTargetIndex(for: location, targetCount: game.targets.count) else {
             showReaction(.sad)
+            showDropFeedback(.miss)
+            playMissSound()
             clearDrag()
             return
         }
@@ -83,12 +89,20 @@ struct GameController {
                 _ = game.matchedFoods.insert(food)
             }
             showReaction(.happy)
+            showDropFeedback(.success)
+            playMatchSound()
 
             if game.isComplete {
                 completeLevel()
             }
         } else {
+            wrongTargetIndex = targetIndex
+            withAnimation(.linear(duration: 0.36)) {
+                wrongDropShakeCounter += 1
+            }
             showReaction(.sad)
+            showDropFeedback(.miss)
+            playMissSound()
         }
 
         clearDrag()
@@ -98,6 +112,8 @@ struct GameController {
         if !game.isComplete && !isPaused {
             reaction = .idle
         }
+        dropFeedback = nil
+        wrongTargetIndex = nil
     }
 
     mutating func resetLevel() {
@@ -105,6 +121,8 @@ struct GameController {
             game = KittenGame.newLevel()
             reaction = .idle
             isPaused = false
+            dropFeedback = nil
+            wrongTargetIndex = nil
             clearDrag()
         }
         musicPlayer.start()
@@ -119,6 +137,11 @@ struct GameController {
         reaction = newReaction
     }
 
+    private mutating func showDropFeedback(_ feedback: DropFeedbackKind) {
+        dropFeedback = feedback
+        dropFeedbackSeed += 1
+    }
+
     private mutating func completeLevel() {
         reaction = .victory
         confettiSeed += 1
@@ -129,6 +152,18 @@ struct GameController {
     private func playVictorySound() {
         #if os(iOS)
         AudioServicesPlaySystemSound(1025)
+        #endif
+    }
+
+    private func playMatchSound() {
+        #if os(iOS)
+        AudioServicesPlaySystemSound(1104)
+        #endif
+    }
+
+    private func playMissSound() {
+        #if os(iOS)
+        AudioServicesPlaySystemSound(1053)
         #endif
     }
 }
