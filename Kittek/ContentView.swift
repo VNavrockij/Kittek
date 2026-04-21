@@ -6,20 +6,9 @@
 //
 
 import SwiftUI
-import AVFoundation
-
-#if os(iOS)
-import AudioToolbox
-#endif
 
 struct ContentView: View {
-    @State private var game = KittenGame.newLevel()
-    @State private var reaction: KittenReaction = .idle
-    @State private var draggingFood: Food?
-    @State private var dragLocation: CGPoint?
-    @State private var eyePhase: CGFloat = 0
-    @State private var confettiSeed = 0
-    @State private var musicPlayer = RoundMusicPlayer()
+    @State private var controller = GameController()
 
     var body: some View {
         GeometryReader { proxy in
@@ -42,7 +31,11 @@ struct ContentView: View {
 
                     topControls(board: board)
 
-                    if game.isComplete {
+                    if controller.isPaused {
+                        pauseOverlay(board: board)
+                    }
+
+                    if controller.game.isComplete {
                         completionLayer(board: board)
                     }
                 }
@@ -51,18 +44,16 @@ struct ContentView: View {
             }
             .onAppear {
                 startEyeAnimation()
-                if !game.isComplete {
-                    musicPlayer.start()
-                }
+                controller.startRoundMusicIfNeeded()
             }
             .onDisappear {
-                musicPlayer.stop()
+                controller.stopRoundMusic()
             }
-            .onChange(of: game.isComplete) { _, isComplete in
+            .onChange(of: controller.game.isComplete) { _, isComplete in
                 if isComplete {
-                    musicPlayer.stop()
+                    controller.stopRoundMusic()
                 } else {
-                    musicPlayer.start()
+                    controller.startRoundMusicIfNeeded()
                 }
             }
         }
@@ -71,11 +62,11 @@ struct ContentView: View {
 
     private func kittenLayer(board: GameBoardMetrics) -> some View {
         ZStack {
-            Image(reaction.imageName(isComplete: game.isComplete))
+            Image(controller.reaction.imageName(isComplete: controller.game.isComplete))
                 .resizable()
                 .frame(width: board.width, height: board.height)
 
-            if reaction == .idle && !game.isComplete {
+            if controller.reaction == .idle && !controller.game.isComplete {
                 Image("Test_Kitten_Eyeballs 1")
                     .resizable()
                     .frame(width: board.kittenEyeLayerSize.width, height: board.kittenEyeLayerSize.height)
@@ -86,10 +77,10 @@ struct ContentView: View {
                     .resizable()
                     .frame(width: board.kittenEyeLayerSize.width, height: board.kittenEyeLayerSize.height)
                     .position(
-                        x: board.kittenEyeLayerCenter.x + sin(eyePhase) * board.width * 0.014,
-                        y: board.kittenEyeLayerCenter.y + cos(eyePhase * 0.7) * board.width * 0.007
+                        x: board.kittenEyeLayerCenter.x + sin(controller.eyePhase) * board.width * 0.014,
+                        y: board.kittenEyeLayerCenter.y + cos(controller.eyePhase * 0.7) * board.width * 0.007
                     )
-                    .animation(.easeInOut(duration: 1.1), value: eyePhase)
+                    .animation(.easeInOut(duration: 1.1), value: controller.eyePhase)
 
                 Image("Test_Kitten_Eyelids 1")
                     .resizable()
@@ -98,13 +89,13 @@ struct ContentView: View {
                     .opacity(0.95)
             }
         }
-        .animation(.spring(response: 0.34, dampingFraction: 0.75), value: reaction)
+        .animation(.spring(response: 0.34, dampingFraction: 0.75), value: controller.reaction)
     }
 
     private func targetLayer(board: GameBoardMetrics) -> some View {
-        ForEach(Array(game.targets.enumerated()), id: \.element.id) { index, food in
+        ForEach(Array(controller.game.targets.enumerated()), id: \.element.id) { index, food in
             let center = board.targetCenter(at: index)
-            let matched = game.matchedFoods.contains(food)
+            let matched = controller.game.matchedFoods.contains(food)
             Image(matched ? food.guessedAssetName : food.shapeAssetName)
                 .resizable()
                 .scaledToFit()
@@ -118,37 +109,36 @@ struct ContentView: View {
     }
 
     private func bottomFoodLayer(board: GameBoardMetrics) -> some View {
-        ForEach(Array(game.bottomFoods.enumerated()), id: \.element.id) { index, food in
-            let isUsed = game.matchedFoods.contains(food)
-            let isDragging = draggingFood == food
-            let center = board.bottomCenter(at: index, count: game.bottomFoods.count)
+        ForEach(Array(controller.game.bottomFoods.enumerated()), id: \.element.id) { index, food in
+            let isUsed = controller.game.matchedFoods.contains(food)
+            let isDragging = controller.draggingFood == food
+            let center = board.bottomCenter(at: index, count: controller.game.bottomFoods.count)
 
             Image(food.circleAssetName)
                 .resizable()
                 .scaledToFit()
                 .frame(width: board.foodSize, height: board.foodSize)
-                .opacity(game.isComplete || isUsed ? 0 : (isDragging ? 0.72 : 1))
+                .opacity(controller.game.isComplete || isUsed ? 0 : (isDragging ? 0.72 : 1))
                 .scaleEffect(isDragging ? 1.08 : 1)
-                .position(isDragging ? (dragLocation ?? center) : center)
+                .position(isDragging ? (controller.dragLocation ?? center) : center)
                 .zIndex(isDragging ? 10 : 2)
                 .gesture(
                     DragGesture(minimumDistance: 2, coordinateSpace: .local)
                         .onChanged { value in
-                            guard !isUsed, !game.isComplete else { return }
-                            if draggingFood == nil {
-                                draggingFood = food
-                            }
-                            dragLocation = value.location
+                            guard !isUsed, !controller.game.isComplete, !controller.isPaused else { return }
+                            controller.beginDragging(food: food)
+                            controller.updateDragLocation(value.location)
                         }
                         .onEnded { value in
-                            guard !isUsed, !game.isComplete else {
-                                clearDrag()
+                            guard !isUsed, !controller.game.isComplete, !controller.isPaused else {
+                                controller.clearDrag()
                                 return
                             }
-                            resolveDrop(food: food, location: value.location, board: board)
+                            controller.resolveDrop(food: food, location: value.location, board: board)
+                            scheduleReactionReset()
                         }
                 )
-                .animation(.spring(response: 0.30, dampingFraction: 0.74), value: draggingFood)
+                .animation(.spring(response: 0.30, dampingFraction: 0.74), value: controller.draggingFood)
                 .animation(.spring(response: 0.34, dampingFraction: 0.82), value: isUsed)
         }
     }
@@ -156,7 +146,7 @@ struct ContentView: View {
     private func topControls(board: GameBoardMetrics) -> some View {
         HStack {
             Button {
-                resetLevel()
+                controller.togglePause()
             } label: {
                 Image("pauseButton 2")
                     .resizable()
@@ -168,7 +158,7 @@ struct ContentView: View {
             Spacer()
 
             Button {
-                resetLevel()
+                controller.resetLevel()
             } label: {
                 Image("levelButton 2")
                     .resizable()
@@ -181,12 +171,39 @@ struct ContentView: View {
         .position(board.point(x: 0.50, y: 0.065))
     }
 
+    private func pauseOverlay(board: GameBoardMetrics) -> some View {
+        ZStack {
+            Color.black.opacity(0.42)
+                .ignoresSafeArea()
+
+            VStack(spacing: board.width * 0.055) {
+                Text("PAUSE")
+                    .font(.system(size: board.width * 0.105, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.35), radius: 8, x: 0, y: 4)
+
+                Button {
+                    controller.resume()
+                } label: {
+                    Image("playButton 2")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: board.actionButtonSize * 1.12, height: board.actionButtonSize * 1.12)
+                }
+                .buttonStyle(.plain)
+            }
+            .position(board.point(x: 0.50, y: 0.50))
+        }
+        .transition(.opacity)
+        .zIndex(20)
+    }
+
     private func completionLayer(board: GameBoardMetrics) -> some View {
         ZStack {
             Color.black.opacity(0.34)
                 .ignoresSafeArea()
 
-            ConfettiView(seed: confettiSeed)
+            ConfettiView(seed: controller.confettiSeed)
                 .allowsHitTesting(false)
 
             VStack(spacing: board.width * 0.04) {
@@ -194,7 +211,7 @@ struct ContentView: View {
 
                 HStack(spacing: board.width * 0.09) {
                     Button {
-                        resetLevel()
+                        controller.resetLevel()
                     } label: {
                         Image("reloadButton 2")
                             .resizable()
@@ -204,7 +221,7 @@ struct ContentView: View {
                     .buttonStyle(.plain)
 
                     Button {
-                        resetLevel()
+                        controller.resetLevel()
                     } label: {
                         Image("playButton 2")
                             .resizable()
@@ -219,326 +236,18 @@ struct ContentView: View {
         .transition(.opacity.combined(with: .scale(scale: 1.02)))
     }
 
-    private func resolveDrop(food: Food, location: CGPoint, board: GameBoardMetrics) {
-        guard let targetIndex = board.hitTargetIndex(for: location, targetCount: game.targets.count) else {
-            showReaction(.sad)
-            clearDrag()
-            return
-        }
-
-        let targetFood = game.targets[targetIndex]
-        if targetFood == food {
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.76)) {
-                _ = game.matchedFoods.insert(food)
-            }
-            showReaction(.happy)
-
-            if game.isComplete {
-                completeLevel()
-            }
-        } else {
-            showReaction(.sad)
-        }
-
-        clearDrag()
-    }
-
-    private func showReaction(_ newReaction: KittenReaction) {
-        reaction = newReaction
+    private func scheduleReactionReset() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-            if !game.isComplete {
-                reaction = .idle
-            }
+            controller.resetReactionIfRoundContinues()
         }
-    }
-
-    private func completeLevel() {
-        reaction = .victory
-        confettiSeed += 1
-        musicPlayer.stop()
-        playVictorySound()
-    }
-
-    private func resetLevel() {
-        withAnimation(.easeInOut(duration: 0.25)) {
-            game = KittenGame.newLevel()
-            reaction = .idle
-            clearDrag()
-        }
-        musicPlayer.start()
-    }
-
-    private func clearDrag() {
-        draggingFood = nil
-        dragLocation = nil
     }
 
     private func startEyeAnimation() {
         Timer.scheduledTimer(withTimeInterval: 1.45, repeats: true) { _ in
             Task { @MainActor in
-                guard reaction == .idle, !game.isComplete else { return }
-                eyePhase += .pi / 2
+                controller.advanceEyeAnimation()
             }
         }
-    }
-
-    private func playVictorySound() {
-        #if os(iOS)
-        AudioServicesPlaySystemSound(1025)
-        #endif
-    }
-}
-
-private struct GameBoardMetrics {
-    private let sourceSize = CGSize(width: 670, height: 1453)
-    let width: CGFloat
-    let height: CGFloat
-
-    init(size: CGSize) {
-        let aspect = sourceSize.width / sourceSize.height
-        let fillWidth = max(size.width, size.height * aspect)
-        width = fillWidth
-        height = fillWidth / aspect
-    }
-
-    var foodSize: CGFloat { width * 0.145 }
-    var controlSize: CGFloat { width * 0.095 }
-    var actionButtonSize: CGFloat { width * 0.15 }
-    var targetSize: CGSize { CGSize(width: width * 0.20, height: width * 0.24) }
-    var kittenEyeLayerSize: CGSize { CGSize(width: width * 0.423, height: width * 0.232) }
-    var kittenEyeLayerCenter: CGPoint { point(x: 0.501, y: 0.405) }
-
-    func point(x: CGFloat, y: CGFloat) -> CGPoint {
-        CGPoint(x: width * x, y: height * y)
-    }
-
-    func targetCenter(at index: Int) -> CGPoint {
-        let positions: [CGPoint] = [
-            point(x: 0.25, y: 0.155),
-            point(x: 0.50, y: 0.135),
-            point(x: 0.75, y: 0.155)
-        ]
-        return positions[index]
-    }
-
-    func bottomCenter(at index: Int, count: Int) -> CGPoint {
-        let availableWidth = width * 0.77
-        let startX = (width - availableWidth) / 2
-        let step = availableWidth / CGFloat(max(count - 1, 1))
-        return CGPoint(x: startX + CGFloat(index) * step, y: height * 0.895)
-    }
-
-    func hitTargetIndex(for location: CGPoint, targetCount: Int) -> Int? {
-        for index in 0..<targetCount {
-            let center = targetCenter(at: index)
-            let hitWidth = targetSize.width * 1.1
-            let hitHeight = targetSize.height * 1.1
-            let frame = CGRect(
-                x: center.x - hitWidth / 2,
-                y: center.y - hitHeight / 2,
-                width: hitWidth,
-                height: hitHeight
-            )
-            if frame.contains(location) {
-                return index
-            }
-        }
-        return nil
-    }
-}
-
-private struct KittenGame {
-    let targets: [Food]
-    let bottomFoods: [Food]
-    var matchedFoods: Set<Food>
-
-    var isComplete: Bool {
-        matchedFoods.count == targets.count
-    }
-
-    static func newLevel() -> KittenGame {
-        let targets = Array(Food.allCases.shuffled().prefix(3))
-        let distractors = Food.allCases.filter { !targets.contains($0) }.shuffled().prefix(2)
-        let bottomFoods = (targets + distractors).shuffled()
-        return KittenGame(targets: targets, bottomFoods: bottomFoods, matchedFoods: [])
-    }
-}
-
-private enum KittenReaction: Equatable {
-    case idle
-    case happy
-    case sad
-    case victory
-
-    func imageName(isComplete: Bool) -> String {
-        if isComplete {
-            return "Test_Kitten_Victory 1"
-        }
-
-        switch self {
-        case .idle:
-            return "Test_Kitten 1"
-        case .happy:
-            return "Test_Kitten_Happy 1"
-        case .sad:
-            return "Test_Kitten_Sad 1"
-        case .victory:
-            return "Test_Kitten_Victory 1"
-        }
-    }
-}
-
-private enum Food: String, CaseIterable, Identifiable {
-    case strawberry = "Strawberry"
-    case banana = "Banana"
-    case apple = "Apple"
-    case raspberry = "Raspberry"
-    case kiwi = "Kiwi"
-
-    var id: String { rawValue }
-    var shapeAssetName: String { "\(rawValue)_shape 1" }
-    var guessedAssetName: String { "\(rawValue)_guessed 1" }
-    var circleAssetName: String { "\(rawValue)_circle 1" }
-}
-
-private struct ConfettiView: View {
-    let seed: Int
-
-    private var pieces: [ConfettiPiece] {
-        (0..<42).map { index in
-            ConfettiPiece(
-                id: index,
-                x: CGFloat((index * 37 + seed * 11) % 100) / 100,
-                delay: Double(index % 9) * 0.11,
-                size: CGFloat(6 + (index % 5) * 3),
-                color: [.pink, .yellow, .mint, .orange, .cyan, .purple][index % 6]
-            )
-        }
-    }
-
-    var body: some View {
-        TimelineView(.animation) { timeline in
-            Canvas { context, size in
-                let elapsed = timeline.date.timeIntervalSinceReferenceDate
-
-                for piece in pieces {
-                    let progress = CGFloat((elapsed + piece.delay).truncatingRemainder(dividingBy: 2.4) / 2.4)
-                    let y = size.height * progress
-                    let wobble = sin(progress * .pi * 6 + CGFloat(piece.id)) * 18
-                    let rect = CGRect(
-                        x: size.width * piece.x + wobble,
-                        y: y - 16,
-                        width: piece.size,
-                        height: piece.size * 0.55
-                    )
-
-                    context.opacity = 1 - max(0, progress - 0.76) * 2.2
-                    context.fill(
-                        Path(roundedRect: rect, cornerRadius: 2),
-                        with: .color(piece.color)
-                    )
-                }
-            }
-        }
-    }
-}
-
-private struct ConfettiPiece: Identifiable {
-    let id: Int
-    let x: CGFloat
-    let delay: Double
-    let size: CGFloat
-    let color: Color
-}
-
-@MainActor
-private final class RoundMusicPlayer {
-    private let engine = AVAudioEngine()
-    private let player = AVAudioPlayerNode()
-    private let sampleRate: Double = 44_100
-    private var melodyBuffer: AVAudioPCMBuffer?
-    private var isConfigured = false
-
-    func start() {
-        configureIfNeeded()
-
-        guard !player.isPlaying else { return }
-
-        do {
-            #if os(iOS)
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try AVAudioSession.sharedInstance().setActive(true)
-            #endif
-
-            if !engine.isRunning {
-                engine.prepare()
-                try engine.start()
-            }
-
-            guard let melodyBuffer else { return }
-            player.scheduleBuffer(melodyBuffer, at: nil, options: .loops)
-            player.play()
-        } catch {
-            player.stop()
-        }
-    }
-
-    func stop() {
-        guard player.isPlaying || engine.isRunning else { return }
-        player.stop()
-        engine.pause()
-    }
-
-    private func configureIfNeeded() {
-        guard !isConfigured else { return }
-
-        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-        melodyBuffer = makeMelodyBuffer(format: format)
-
-        engine.attach(player)
-        engine.connect(player, to: engine.mainMixerNode, format: format)
-        engine.mainMixerNode.outputVolume = 1
-        player.volume = 0.45
-        isConfigured = true
-    }
-
-    private func makeMelodyBuffer(format: AVAudioFormat) -> AVAudioPCMBuffer {
-        let notes: [(frequency: Float, beats: Float)] = [
-            (523.25, 1.0),
-            (659.25, 1.0),
-            (783.99, 1.0),
-            (880.00, 1.0),
-            (783.99, 1.0),
-            (659.25, 1.0),
-            (587.33, 1.0),
-            (523.25, 1.0)
-        ]
-        let beatDuration: Float = 0.42
-        let frameCount = AVAudioFrameCount(notes.reduce(Float(0)) { total, note in
-            total + note.beats * beatDuration * Float(sampleRate)
-        })
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
-        buffer.frameLength = frameCount
-
-        guard let channel = buffer.floatChannelData?[0] else { return buffer }
-
-        var frameOffset = 0
-        for note in notes {
-            let noteFrames = Int(note.beats * beatDuration * Float(sampleRate))
-            for frame in 0..<noteFrames where frameOffset + frame < Int(frameCount) {
-                let progress = Float(frame) / Float(max(noteFrames - 1, 1))
-                let attack = min(progress / 0.12, 1)
-                let release = min((1 - progress) / 0.18, 1)
-                let envelope = min(attack, release)
-                let time = Float(frame) / Float(sampleRate)
-                let tone = sin(2 * Float.pi * note.frequency * time)
-                let softOvertone = 0.35 * sin(2 * Float.pi * note.frequency * 2 * time)
-                channel[frameOffset + frame] = (tone + softOvertone) * envelope * 0.58
-            }
-            frameOffset += noteFrames
-        }
-
-        return buffer
     }
 }
 
