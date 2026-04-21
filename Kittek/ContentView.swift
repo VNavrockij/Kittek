@@ -64,23 +64,23 @@ struct ContentView: View {
             if reaction == .idle && !game.isComplete {
                 Image("Test_Kitten_Eyeballs 1")
                     .resizable()
-                    .frame(width: board.width * 0.60, height: board.width * 0.33)
-                    .position(board.point(x: 0.50, y: 0.50))
+                    .frame(width: board.kittenEyeLayerSize.width, height: board.kittenEyeLayerSize.height)
+                    .position(board.kittenEyeLayerCenter)
                     .opacity(0.95)
 
                 Image("Test_Kitten_Pupils 1")
                     .resizable()
-                    .frame(width: board.width * 0.60, height: board.width * 0.33)
+                    .frame(width: board.kittenEyeLayerSize.width, height: board.kittenEyeLayerSize.height)
                     .position(
-                        x: board.point(x: 0.50, y: 0.50).x + sin(eyePhase) * board.width * 0.020,
-                        y: board.point(x: 0.50, y: 0.50).y + cos(eyePhase * 0.7) * board.width * 0.010
+                        x: board.kittenEyeLayerCenter.x + sin(eyePhase) * board.width * 0.014,
+                        y: board.kittenEyeLayerCenter.y + cos(eyePhase * 0.7) * board.width * 0.007
                     )
                     .animation(.easeInOut(duration: 1.1), value: eyePhase)
 
                 Image("Test_Kitten_Eyelids 1")
                     .resizable()
-                    .frame(width: board.width * 0.60, height: board.width * 0.33)
-                    .position(board.point(x: 0.50, y: 0.50))
+                    .frame(width: board.kittenEyeLayerSize.width, height: board.kittenEyeLayerSize.height)
+                    .position(board.kittenEyeLayerCenter)
                     .opacity(0.95)
             }
         }
@@ -290,6 +290,8 @@ private struct GameBoardMetrics {
     var controlSize: CGFloat { width * 0.095 }
     var actionButtonSize: CGFloat { width * 0.15 }
     var targetSize: CGSize { CGSize(width: width * 0.20, height: width * 0.24) }
+    var kittenEyeLayerSize: CGSize { CGSize(width: width * 0.423, height: width * 0.232) }
+    var kittenEyeLayerCenter: CGPoint { point(x: 0.501, y: 0.405) }
 
     func point(x: CGFloat, y: CGFloat) -> CGPoint {
         CGPoint(x: width * x, y: height * y)
