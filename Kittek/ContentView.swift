@@ -47,8 +47,6 @@ struct ContentView: View {
                     }
                 }
                 .frame(width: board.width, height: board.height)
-                .clipShape(RoundedRectangle(cornerRadius: board.cornerRadius, style: .continuous))
-                .shadow(color: .black.opacity(0.45), radius: 22, x: 0, y: 14)
                 .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
             }
             .onAppear {
@@ -68,6 +66,7 @@ struct ContentView: View {
                 }
             }
         }
+        .ignoresSafeArea()
     }
 
     private func kittenLayer(board: GameBoardMetrics) -> some View {
@@ -297,12 +296,11 @@ private struct GameBoardMetrics {
 
     init(size: CGSize) {
         let aspect = sourceSize.width / sourceSize.height
-        let maxWidth = min(size.width, size.height * aspect)
-        width = maxWidth
-        height = maxWidth / aspect
+        let fillWidth = max(size.width, size.height * aspect)
+        width = fillWidth
+        height = fillWidth / aspect
     }
 
-    var cornerRadius: CGFloat { max(0, width * 0.035) }
     var foodSize: CGFloat { width * 0.145 }
     var controlSize: CGFloat { width * 0.095 }
     var actionButtonSize: CGFloat { width * 0.15 }
